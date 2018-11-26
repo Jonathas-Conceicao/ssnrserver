@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"go/build"
 	"net"
 
 	ssnr "github.com/Jonathas-Conceicao/ssnrgo"
@@ -10,26 +11,39 @@ import (
 var users *ssnr.UserTable
 
 func main() {
-	port := ":8080"
-	fmt.Println("Oppening TCP connection on port" + port)
-	ln, err := net.Listen("tcp", port)
-	if err != nil {
-		panic("Failed to open TCP port at" + port)
-	}
-
-	fmt.Println("Allocating new Users Table")
-	users = new(ssnr.UserTable)
-	users.Add(78, ssnr.User{"Dummy01", nil})
-	users.Add(79, ssnr.User{"Dummy02", nil})
-	users.Add(80, ssnr.User{"Dummy03", nil})
+	confFile := build.Default.GOPATH + "/configs/ssnr_server_config.json"
+	config := loadConfig(confFile)
+	loadUserTable()
+	tcpCon := startConnection(config)
 
 	for {
-		conn, err := ln.Accept()
+		conn, err := tcpCon.Accept()
 		if err != nil {
 			panic("Failed to accept TCP connection")
 		}
 		go handleConnection(conn)
 	}
+}
+
+func loadConfig(filePath string) *ssnr.Config {
+	fmt.Println("Loading config")
+	r := ssnr.NewConfig(filePath)
+	return r
+}
+
+func loadUserTable() {
+	fmt.Println("Allocating new Users Table")
+	users = new(ssnr.UserTable)
+	users.Add(0, ssnr.User{"Server", nil})
+}
+
+func startConnection(config *ssnr.Config) net.Listener {
+	fmt.Println("Oppening TCP connection on port" + config.Port)
+	r, err := net.Listen("tcp", config.Port)
+	if err != nil {
+		panic("Failed to open TCP port at" + config.Port)
+	}
+	return r
 }
 
 func handleConnection(cn net.Conn) {
