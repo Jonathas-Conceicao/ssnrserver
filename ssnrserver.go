@@ -1,9 +1,11 @@
 package main
 
 import (
-	"fmt"
-	"go/build"
+	"log"
 	"net"
+	"os"
+
+	"github.com/urfave/cli"
 
 	ssnr "github.com/Jonathas-Conceicao/ssnrgo"
 )
@@ -11,79 +13,104 @@ import (
 var users *ssnr.UserTable
 
 func main() {
-	confFile := build.Default.GOPATH + "/configs/ssnr_server_config.json"
-	config := loadConfig(confFile)
-	loadUserTable()
-	tcpCon := startConnection(config)
+	app := cli.NewApp()
+	app.Name = "SSNR server"
+	app.Usage = "Host distributed notifications over SSNR protocol"
+	app.Version = "0.1.0"
 
-	for {
-		conn, err := tcpCon.Accept()
+	cli.HelpFlag = cli.BoolFlag{
+		Name:  "help",
+		Usage: "show this dialog",
+	}
+	app.Flags = []cli.Flag{
+		cli.StringFlag{
+			Name:  "port, p",
+			Value: ":30106",
+			Usage: "Server port",
+		},
+		cli.StringFlag{
+			Name:  "name, n",
+			Usage: "Server's name",
+		},
+	}
+
+	app.Action = func(c *cli.Context) error {
+		log.Println("Allocating new Users Table")
+		users = new(ssnr.UserTable)
+		users.Add(0, ssnr.User{"Server", nil})
+
+		config, err := ssnr.NewConfig(
+			"Server",
+			c.String("port"),
+			c.String("name"))
 		if err != nil {
-			panic("Failed to accept TCP connection")
+			return err
 		}
-		go handleConnection(conn)
+		tcpCon, err := startConnection(config)
+		if err != nil {
+			return err
+		}
+
+		for {
+			conn, err := tcpCon.Accept()
+			if err != nil {
+				return err
+			}
+			go handleConnection(conn)
+		}
+	}
+	err := app.Run(os.Args)
+	if err != nil {
+		log.Fatal(err)
 	}
 }
 
-func loadConfig(filePath string) *ssnr.Config {
-	fmt.Println("Loading config")
-	r := ssnr.NewConfig(filePath)
-	return r
-}
-
-func loadUserTable() {
-	fmt.Println("Allocating new Users Table")
-	users = new(ssnr.UserTable)
-	users.Add(0, ssnr.User{"Server", nil})
-}
-
-func startConnection(config *ssnr.Config) net.Listener {
-	fmt.Println("Oppening TCP connection on port" + config.Port)
+func startConnection(config *ssnr.Config) (net.Listener, error) {
+	log.Println("Oppening TCP connection on port" + config.Port)
 	r, err := net.Listen("tcp", config.Port)
 	if err != nil {
-		panic("Failed to open TCP port at" + config.Port)
+		return nil, err
 	}
-	return r
+	return r, nil
 }
 
-func handleConnection(cn net.Conn) {
+func handleConnection(cn net.Conn) error {
 	tmp := make([]byte, 500)
 	_, err := cn.Read(tmp)
 	if err != nil {
-		panic("Error found when reading message")
+		return err
 	}
 
 	switch tmp[0] {
 	case ssnr.NotificationCode:
-		handleNotification(tmp)
+		return handleNotification(tmp)
 	case ssnr.ListingCode:
-		handleListing(cn, tmp)
+		return handleListing(cn, tmp)
 	default:
-		handleUnknown(cn, tmp)
+		return handleUnknown(cn, tmp)
 	}
-	return
 }
 
-func handleNotification(data []byte) {
+func handleNotification(data []byte) error {
 	message := ssnr.DecodeNotification(data)
-	fmt.Println("Message Received:\n" + message.String())
-	fmt.Println("Current list of users: ", users.Length())
-	fmt.Print(users)
-	return
+	log.Println("Message Received:\n" + message.String())
+	log.Println("Current list of users: ", users.Length())
+	log.Print(users)
+	return nil
 }
 
-func handleListing(cn net.Conn, data []byte) {
-	fmt.Print("Recived listing request")
+func handleListing(cn net.Conn, data []byte) error {
+	log.Print("Recived listing request")
 	listing := ssnr.DecodeListing(data)
-	fmt.Println(" for ", listing.GetAmount(), " users")
+	log.Println(" for ", listing.GetAmount(), " users")
 	listing.SetUsers(users)
 	answer := listing.Encode()
 	cn.Write(answer)
-	return
+	return nil
 }
 
-func handleUnknown(cn net.Conn, data []byte) {
-	fmt.Printf("Invalid message received!\nCode: %d\n", data[0])
+func handleUnknown(cn net.Conn, data []byte) error {
+	log.Printf("Invalid message received!\nCode: %d\n", data[0])
 	cn.Write([]byte{0})
-	return
+	return nil
 }
