@@ -2,9 +2,11 @@ package main
 
 import (
 	"bufio"
+	"errors"
 	"log"
 	"net"
 	"os"
+	"strconv"
 
 	"github.com/urfave/cli"
 
@@ -86,46 +88,48 @@ func handleConnection(cn net.Conn) error {
 
 	switch code[0] {
 	case ssnr.NotificationCode:
-		return handleNotification(cn, reader)
+		err = handleNotification(cn, reader)
 	case ssnr.ListingCode:
-		return handleListing(cn, reader)
+		err = handleListing(cn, reader)
 	case ssnr.RegisterCode:
-		return handleRegister(cn, reader)
+		err = handleRegister(cn, reader)
 	case ssnr.DisconnectCode:
-		return handleDisconnect(cn, reader)
+		err = handleDisconnect(cn, reader)
 	default:
-		return handleUnknown(cn, reader)
+		err = handleUnknown(cn, reader)
 	}
+	if err != nil {
+		log.Println(err)
+	}
+	return nil
 }
 
 func handleNotification(cn net.Conn, rd *bufio.Reader) error {
 	defer logAndClose(cn)
-	data := make([]byte, 500)
-	_, err := rd.Read(data)
+
+	data, message, err := ssnr.ReadNotification(rd)
 	if err != nil {
 		return err
 	}
-
-	message := ssnr.DecodeNotification(data)
-	log.Println("Message Received" +
-		" from: " + message.GetEmiter() +
-		" to:" + string(message.GetReceptor()))
-	log.Println("Current list of users: ", users.Length())
-	log.Print(users)
-	return nil
+	log.Println("Message Received",
+		"from: \""+message.GetEmiter()+"\"",
+		"to:", message.GetReceptor())
+	usr := users.Get(message.GetReceptor())
+	if usr != nil {
+		_, err = usr.Addr.Write(data)
+		return err
+	}
+	return errors.New("Message for non indexed user: " +
+		strconv.FormatInt(int64(message.GetReceptor()), 10))
 }
 
 func handleListing(cn net.Conn, rd *bufio.Reader) error {
 	defer logAndClose(cn)
-	data := make([]byte, 500)
-	_, err := rd.Read(data)
+	log.Print("Recived listing request")
+	_, listing, err := ssnr.ReadListing(rd, true)
 	if err != nil {
 		return err
 	}
-
-	log.Print("Recived listing request")
-	listing := ssnr.DecodeListing(data)
-	log.Println(" for ", listing.GetAmount(), " users")
 	listing.SetUsers(users)
 	answer := listing.Encode()
 	cn.Write(answer)
