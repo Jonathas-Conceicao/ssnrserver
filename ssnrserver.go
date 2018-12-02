@@ -93,8 +93,6 @@ func handleConnection(cn net.Conn) error {
 		err = handleListing(cn, reader)
 	case ssnr.RegisterCode:
 		err = handleRegister(cn, reader)
-	case ssnr.DisconnectCode:
-		err = handleDisconnect(cn, reader)
 	default:
 		err = handleUnknown(cn, reader)
 	}
@@ -160,11 +158,6 @@ func handleRegister(cn net.Conn, rd *bufio.Reader) error {
 		req.SetReturn(ssnr.ConnNewAddres)
 	}
 	cn.Write(req.Encode())
-	return nil
-}
-
-func handleDisconnect(cn net.Conn, rd *bufio.Reader) error {
-	log.Println("Recived disconnect from: ", cn.RemoteAddr())
 	return nil
 }
 
