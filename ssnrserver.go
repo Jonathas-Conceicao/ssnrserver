@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bufio"
 	"log"
 	"net"
 	"os"
@@ -53,12 +54,14 @@ func main() {
 
 		for {
 			conn, err := tcpCon.Accept()
+			log.Println("Connection Accepted from:", conn.RemoteAddr())
 			if err != nil {
 				return err
 			}
 			go handleConnection(conn)
 		}
 	}
+
 	err := app.Run(os.Args)
 	if err != nil {
 		log.Fatal(err)
@@ -75,31 +78,51 @@ func startConnection(config *ssnr.Config) (net.Listener, error) {
 }
 
 func handleConnection(cn net.Conn) error {
-	tmp := make([]byte, 500)
-	_, err := cn.Read(tmp)
+	reader := bufio.NewReader(cn)
+	code, err := reader.Peek(1)
 	if err != nil {
 		return err
 	}
 
-	switch tmp[0] {
+	switch code[0] {
 	case ssnr.NotificationCode:
-		return handleNotification(tmp)
+		return handleNotification(cn, reader)
 	case ssnr.ListingCode:
-		return handleListing(cn, tmp)
+		return handleListing(cn, reader)
+	case ssnr.RegisterCode:
+		return handleRegister(cn, reader)
+	case ssnr.DisconnectCode:
+		return handleDisconnect(cn, reader)
 	default:
-		return handleUnknown(cn, tmp)
+		return handleUnknown(cn, reader)
 	}
 }
 
-func handleNotification(data []byte) error {
+func handleNotification(cn net.Conn, rd *bufio.Reader) error {
+	defer logAndClose(cn)
+	data := make([]byte, 500)
+	_, err := rd.Read(data)
+	if err != nil {
+		return err
+	}
+
 	message := ssnr.DecodeNotification(data)
-	log.Println("Message Received:\n" + message.String())
+	log.Println("Message Received" +
+		" from: " + message.GetEmiter() +
+		" to:" + string(message.GetReceptor()))
 	log.Println("Current list of users: ", users.Length())
 	log.Print(users)
 	return nil
 }
 
-func handleListing(cn net.Conn, data []byte) error {
+func handleListing(cn net.Conn, rd *bufio.Reader) error {
+	defer logAndClose(cn)
+	data := make([]byte, 500)
+	_, err := rd.Read(data)
+	if err != nil {
+		return err
+	}
+
 	log.Print("Recived listing request")
 	listing := ssnr.DecodeListing(data)
 	log.Println(" for ", listing.GetAmount(), " users")
@@ -109,8 +132,52 @@ func handleListing(cn net.Conn, data []byte) error {
 	return nil
 }
 
-func handleUnknown(cn net.Conn, data []byte) error {
+func handleRegister(cn net.Conn, rd *bufio.Reader) error {
+	data := make([]byte, 500)
+	_, err := rd.Read(data)
+	if err != nil {
+		return err
+	}
+
+	log.Print("Recived register from: ", cn.RemoteAddr())
+	req, err := ssnr.DecodeRegister(data)
+	if err != nil {
+		return err
+	}
+
+	storedIndex, err := users.Add(req.GetReceptor(), ssnr.User{req.GetName(), cn})
+	switch {
+	case err != nil:
+		req.SetReturn(ssnr.RefServerFull)
+	case storedIndex == req.GetReceptor():
+		req.SetReturn(ssnr.ConnAccepted)
+	default:
+		req.SetReceptor(storedIndex)
+		req.SetReturn(ssnr.ConnNewAddres)
+	}
+	cn.Write(req.Encode())
+	return nil
+}
+
+func handleDisconnect(cn net.Conn, rd *bufio.Reader) error {
+	log.Println("Recived disconnect from: ", cn.RemoteAddr())
+	return nil
+}
+
+func handleUnknown(cn net.Conn, rd *bufio.Reader) error {
+	defer logAndClose(cn)
+	data := make([]byte, 500)
+	_, err := rd.Read(data)
+	if err != nil {
+		return err
+	}
+
 	log.Printf("Invalid message received!\nCode: %d\n", data[0])
 	cn.Write([]byte{0})
 	return nil
+}
+
+func logAndClose(cn net.Conn) {
+	log.Println("Closing to:", cn.RemoteAddr())
+	cn.Close()
 }
