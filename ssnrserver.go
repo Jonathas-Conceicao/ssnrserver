@@ -135,14 +135,7 @@ func handleListing(cn net.Conn, rd *bufio.Reader) error {
 }
 
 func handleRegister(cn net.Conn, rd *bufio.Reader) error {
-	data := make([]byte, 500)
-	_, err := rd.Read(data)
-	if err != nil {
-		return err
-	}
-
-	log.Print("Recived register from: ", cn.RemoteAddr())
-	req, err := ssnr.DecodeRegister(data)
+	_, req, err := ssnr.ReadRegister(rd)
 	if err != nil {
 		return err
 	}
