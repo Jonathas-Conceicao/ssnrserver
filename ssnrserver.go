@@ -110,7 +110,7 @@ func handleNotification(cn net.Conn, rd *bufio.Reader) error {
 		return err
 	}
 	log.Println("Message Received",
-		"from: \""+message.GetEmiter()+"\"",
+		"from: \""+message.GetEmitter()+"\"",
 		"to:", message.GetReceptor())
 	usr := users.Get(message.GetReceptor())
 	if usr != nil {
