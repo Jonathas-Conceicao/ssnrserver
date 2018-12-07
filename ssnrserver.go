@@ -123,7 +123,8 @@ func handleNotification(cn net.Conn, rd *bufio.Reader) error {
 
 func handleListing(cn net.Conn, rd *bufio.Reader) error {
 	defer logAndClose(cn)
-	log.Print("Recived listing request")
+	log.Println("Recived listing request")
+	handleDisconnects()
 	_, listing, err := ssnr.ReadListing(rd, true)
 	if err != nil {
 		return err
@@ -165,6 +166,12 @@ func handleUnknown(cn net.Conn, rd *bufio.Reader) error {
 	log.Printf("Invalid message received!\nCode: %d\n", data[0])
 	cn.Write([]byte{0})
 	return nil
+}
+
+func handleDisconnects() {
+	log.Println("Cleanning any all connection")
+	n := users.CleanDisconnects()
+	log.Println(n, "receivers where removed")
 }
 
 func logAndClose(cn net.Conn) {
