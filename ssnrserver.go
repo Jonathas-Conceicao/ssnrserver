@@ -3,10 +3,12 @@ package main
 import (
 	"bufio"
 	"errors"
+	"fmt"
 	"log"
 	"net"
 	"os"
 	"strconv"
+	"time"
 
 	"github.com/urfave/cli"
 
@@ -56,6 +58,7 @@ func main() {
 
 		for {
 			conn, err := tcpCon.Accept()
+			conn.SetReadDeadline(time.Now().Add(10 * time.Millisecond))
 			log.Println("Connection Accepted from:", conn.RemoteAddr())
 			if err != nil {
 				return err
@@ -66,6 +69,7 @@ func main() {
 
 	err := app.Run(os.Args)
 	if err != nil {
+		log.Printf("Error of type: %T", err)
 		log.Fatal(err)
 	}
 }
@@ -114,6 +118,11 @@ func handleNotification(cn net.Conn, rd *bufio.Reader) error {
 		"to:", message.GetReceptor())
 	usr := users.Get(message.GetReceptor())
 	if usr != nil {
+		if message.GetReceptor() == 0 {
+			log.Println("Message address to server")
+			displayNotification(message)
+			return nil
+		}
 		_, err = usr.Addr.Write(data)
 		return err
 	}
@@ -136,6 +145,7 @@ func handleListing(cn net.Conn, rd *bufio.Reader) error {
 }
 
 func handleRegister(cn net.Conn, rd *bufio.Reader) error {
+	handleDisconnects()
 	_, req, err := ssnr.ReadRegister(rd)
 	if err != nil {
 		return err
@@ -169,12 +179,19 @@ func handleUnknown(cn net.Conn, rd *bufio.Reader) error {
 }
 
 func handleDisconnects() {
-	log.Println("Cleanning any all connection")
-	n := users.CleanDisconnects()
+	log.Println("Clearing any closed connection")
+	n := users.ClearDisconnects()
 	log.Println(n, "receivers where removed")
 }
 
 func logAndClose(cn net.Conn) {
 	log.Println("Closing to:", cn.RemoteAddr())
 	cn.Close()
+}
+
+func displayNotification(n *ssnr.Notification) {
+	log.Println(fmt.Sprintf("[%s] - %s\n%s",
+		n.GetEmitter(),
+		n.GetTimeString(),
+		n.GetMessage()))
 }
